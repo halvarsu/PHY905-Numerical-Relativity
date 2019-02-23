@@ -93,51 +93,24 @@ class BaseStar():
     
         
     def solve_star(self, integrator = 'dopri5', tol = 1e-6):
-        if not self.initialized:
-            raise ValueError('Must set initial conditions first!')
+        """Uses scipy.solve_ivp to solve the TOV-equations."""
+
         rhoc = self.rhoc
         Pc = self.P(rhoc)
         rho0 = self.rho0(Pc) # rhoc - Pc/(self._gamma - 1)
 
-        solver = ode(self.derivatives).set_integrator(integrator)
-
         m = M0 = Phi = 0
         y0 = [m, Pc, Phi, M0]
-        solver.set_initial_value(y0, 0)
-        
-        dr =  self.r_max / self.Nr
 
-        values = []
-        r_values = []
-        
-        m = 0
-        P = Pc
-        
-        while solver.successful() and solver.t < self.r_max or self.P < 0:
-            # if P < 0:     
-            #     # overstepped, go back and recalculate with smaller step
-            #     dr /= 2
-            #     values.pop()
-            #     r_values.pop()
-            # elif P < tol: # break out of loop
-            #     break
+        def pressure_event(t,y):
+            """Passed to solver for termination when is pressure 0."""
+            return y[1] 
 
-            solver.integrate(solver.t+dr)
+        pressure_event.terminate = True
 
-            values.append(solver.y)
-            r_values.append(solver.t)
-            
-            m = solver.y[0]
-            P = solver.y[1]
-            if m < 0:
-                raise ValueError('negative mass!')
-                
-        if not solver.successful():
-            import warnings
-            warnings.warn('Something went wrong in the integration, and we need a better error message')
-
-        values = np.array(values)
-        return solver, values, r_values
+        solver = solve_ivp(self.derivatives, t_span = [0, test_star.r_max],  y0 = y0,
+                          events = pressure_event)
+        return solver
 
     def maximum_mass(self, n):
         pass
