@@ -75,8 +75,8 @@ class BaseStar():
         
     def derivatives(self, r, y):
         (m, P, Phi, M0) = y
-        if P <0:
-            return [0,0,0,0]
+        # if P <0:
+        #     return [0,0,0,0]
         # print(P, self.pres_bounds)
         # if np.log10(P) < self.pres_bounds[0] or P < 0:
         #     # SUPER HACK, use polytrope star when density is too smal
@@ -102,12 +102,11 @@ class BaseStar():
         # print(P, rho)
         return [dmdr, dPdr, dPhidr, dM0dr]
     
-    def get_pressure_event():
+    def get_pressure_event(self):
         def pressure_event(t,y):
             """Passed to solver for termination when is pressure 0."""
-            # print('HALLO' , y[1])
             return y[1] 
-        pressure_event.terminate = True
+        pressure_event.terminal = True
         return pressure_event
         
     def solve_star(self, integrator = 'dopri5', tol = 1e-6):
@@ -122,8 +121,6 @@ class BaseStar():
         
         Phi = 0
         y0 = [m, Pc, Phi, M0]
-
-
 
         solver = solve_ivp(self.derivatives, t_span = [r0, self.r_max],  y0 = y0,
                           #max_step = self.r_max/50, 
