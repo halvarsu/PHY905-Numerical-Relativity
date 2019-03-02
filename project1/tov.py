@@ -45,6 +45,7 @@ class BaseStar():
     def __init__(self):
         self.initialized = False
         self.pres_bounds = [0, np.inf]
+        self._allow_negative_pressure = True
         
     
     def set_initial_conditions(self, rhoc, r_max_cgs = 50e5,  Nr = 2000,
@@ -75,17 +76,11 @@ class BaseStar():
         
     def derivatives(self, r, y):
         (m, P, Phi, M0) = y
-        # if P <0:
-        #     return [0,0,0,0]
-        # print(P, self.pres_bounds)
-        # if np.log10(P) < self.pres_bounds[0] or P < 0:
-        #     # SUPER HACK, use polytrope star when density is too smal
-        #     self.K = 30000
-        #     self._gamma = 2.75
-        #     rho0 = PolytropeStar.rho0(self, P)
-        #     rho = PolytropeStar.rho(self, P, rho0)
-        #     print("HEI", rho0, rho)
-        # else: 
+
+        if not self._allow_negative_pressure:
+            if P < 10**self.pres_bounds[0] or np.isnan(P):
+                return [0,0,0,0]
+
         rho0 = self.rho0(P) 
         rho = self.rho(P) 
             # print("HALLO", rho0, rho)
@@ -101,7 +96,8 @@ class BaseStar():
         # print([dmdr, dPdr, dPhidr, dM0dr])
         # print(P, rho)
         return [dmdr, dPdr, dPhidr, dM0dr]
-    
+
+
     def get_pressure_event(self):
         def pressure_event(t,y):
             """Passed to solver for termination when is pressure 0."""
@@ -109,8 +105,10 @@ class BaseStar():
         pressure_event.terminal = True
         return pressure_event
         
-    def solve_star(self, integrator = 'dopri5', tol = 1e-6):
-        """Uses scipy.solve_ivp to solve the TOV-equations."""
+    def solve_star_ivp(self, integrator = 'dopri5', tol = 1e-6):
+        """Uses scipy.solve_ivp to solve the TOV-equations. Has trouble
+        finding the edge for table-stars, as table lookup for out-of-bounds
+        pressures is hard to stop."""
         Pc = self.P(self.rhoc)
         rho0 = self.rho0(Pc)
 
@@ -123,9 +121,75 @@ class BaseStar():
         y0 = [m, Pc, Phi, M0]
 
         solver = solve_ivp(self.derivatives, t_span = [r0, self.r_max],  y0 = y0,
-                          #max_step = self.r_max/50, 
                           events = self.get_pressure_event())
         return solver
+
+    def solve_star_ode(self, integrator = 'dopri5', tol = 1e-6, Nr = 100):
+        """Uses scipy.ode to solve the TOV-equations, with controlled edge
+        finding."""
+        if not self.initialized:
+            raise ValueError('Must set initial conditions first!')
+        
+        Pc = self.P(self.rhoc)
+        rho0 = self.rho0(Pc)
+
+        r0 = self.r_max * 1e-8 # small nonzero radius to start
+
+        m = 4/3*np.pi*r0**3 * self.rhoc
+        M0 = 4/3*np.pi*r0**3 * rho0 / np.sqrt(1-2*m/r0)
+        
+        Phi = 0
+        y0 = [m, Pc, Phi, M0]
+
+
+        from scipy.integrate import ode
+        solver = ode(self.derivatives).set_integrator(integrator)
+        solver.set_initial_value(y0, r0)
+        
+        dr =  self.r_max / Nr
+
+        t = []
+        y = []
+        
+        m = 0
+        P = Pc
+        dr_tol = dr *1e-6
+        
+        while solver.successful() and solver.t < self.r_max and (not P < 10**self.pres_bounds[0])  and (not np.isnan(P)):
+            # print(1, P, P < 0)
+            solver.integrate(solver.t+dr)
+            # print(2, solver.y[1], solver.y[1] < 0)
+
+            y.append(solver.y)
+            t.append(solver.t)
+            
+            if P == solver.y[1] or solver.y[1] < 10**self.pres_bounds[0]:
+                # print(P)
+                # overstepped and produced negative P
+                # go back and recalculate with smaller step
+                dr /= 2
+                if dr < dr_tol:
+                    break
+                #print(dr)
+                ## Remove values and reset solver to previous 
+                #print(P, t[-3:])
+                y.pop()
+                t.pop()
+                solver.set_initial_value(y[-1], t[-1])
+                # print(3333, y[-1], solver.y)
+                m = solver.y[0]
+                P = solver.y[1]
+                continue
+            m = solver.y[0]
+            P = solver.y[1]
+            if m < 0:
+                raise ValueError('negative mass!')
+                
+        if not solver.successful():
+            import warnings
+            warnings.warn('Something went wrong in the integration, and we need a better error message')
+        y = np.array(y)
+        return solver, t, y
     
 
 class PolytropeStar(BaseStar):
@@ -133,6 +197,10 @@ class PolytropeStar(BaseStar):
         self.K = K
         self._gamma = gamma
         self._n = 1/(gamma - 1)
+        self.pres_bounds = [-np.inf, np.inf]
+        self.pres_bounds = [-np.inf, np.inf]
+        self.pres_bounds = [-np.inf, np.inf]
+
         BaseStar.__init__(self, *args, **kwargs)
         
     def rho0(self, P):
