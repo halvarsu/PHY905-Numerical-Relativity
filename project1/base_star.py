@@ -5,11 +5,12 @@ import scipy.integrate
 
 class BaseStar():
     """
-    Baseclass for star solvers. Must implement density function in subclasses. 
+    Baseclass for star solvers. Must implement density functions in
+    subclass to run. 
     Assumes scaled, geometrized units where G = c = M_sun = 1.
     
     TODO:
-        - Fix scalar field so it matches minkowski metric
+        - Fix scalar field so it matches minkowski metric at edge
     """
     def __init__(self):
         self.initialized = False
@@ -76,8 +77,9 @@ class BaseStar():
         
     def solve_star_ivp(self, integrator = 'dopri5', tol = 1e-6):
         """Uses scipy.solve_ivp to solve the TOV-equations. Works for
-        Polytrope stars. Has trouble finding the edge for table-stars, as
-        table lookup for out-of-bounds pressures is hard to prevent."""
+        Polytrope stars. Has trouble finding the edge for table-stars when
+        no extrapolation is used, as table lookup for out-of-bound
+        pressures is hard to prevent."""
 
         if not self.initialized:
             raise ValueError('Must set initial conditions first!')
@@ -103,8 +105,7 @@ class BaseStar():
     def solve_star_ode(self, integrator = 'dopri5', tol = 1e-6, Nr = 100):
         """Uses scipy.ode to solve the TOV-equations, with controlled edge
         finding.  
-        MIGHT BE DEPRECATED, if interpolate with extrapolation at edges
-        works.
+        DEPRECATED for this project, as interpolation with extrapolation at edges works fine.
         """
         if not self.initialized:
             raise ValueError('Must set initial conditions first!')

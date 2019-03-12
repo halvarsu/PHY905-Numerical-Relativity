@@ -5,6 +5,9 @@ from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
 
 
 class BaseTableStar(BaseStar):
+    """Implements pressure and density methods for a table based star.
+    Needs implementation of interpolation generators, which is dependent on
+    the format of the tables."""
     def __init__(self, tablefile, scaling = {}, premade_tables = True, *args, **kwargs):
         """Star loading central values"""
         BaseStar.__init__(self, *args, **kwargs)
@@ -39,20 +42,22 @@ class BaseTableStar(BaseStar):
         return 10**self.rho_interp(logP)
     
     def rho(self, P = None, rho0 = None):
-        """Can find rho from rho0, or P by using P to find rho0."""
+        """Can find rho from rho0 or from P by using P to find rho0."""
         
         if rho0 is None and P is None:
             raise ValueError('Either P or rho0 must be specified')
         
-        rho0 or self.rho0(P)
+        rho0 = rho0 or self.rho0(P)
         eps = self.energy(rho0)
         return rho0 / (1 - eps)
 
 
 class TableStar(BaseTableStar):
-    """Generates the interpolators from the full hdf5 file.
+    """Generates the interpolators from hdf5 files, as found on
+    stellarcollapse.org.
     
-        TODO: Tidy up a bit more 
+        TODO:
+        -   check if current root finder for no root is a sound method
     """
     def generate_interpolators(self, tablefile):
         """Generates the interpolators from the full hdf5 file.
@@ -94,7 +99,7 @@ class TableStar(BaseTableStar):
                 warnings.warn('Error, more than one root in munu! Using closest to previous')
                 ye_root = ye_roots[np.argmin(np.abs(np.array(ye_roots) - prev_root))]
             elif len(ye_roots) == 0:
-                # in case of no roots, we chose the previous value
+                # in case of no roots, we chose the previous value 
                 ye_root = prev_root
             else:
                 ye_root = ye_roots[0]
@@ -105,7 +110,7 @@ class TableStar(BaseTableStar):
             self.pres_arr[i]    = pres_func(ye_root)
             self.energy_arr[i]  = energy_func(ye_root)
             
-        # Generate the interpolators
+        # generate interpolators
         self.rho_interp    = interp1d(self.pres_arr, self.rho_grid, fill_value='extrapolate')
         self.eps_interp = interp1d(self.rho_grid, self.energy_arr, fill_value='extrapolate')
         self.pres_interp   = interp1d(self.rho_grid, self.pres_arr, fill_value='extrapolate')
@@ -116,26 +121,30 @@ class TableStar(BaseTableStar):
 
 
 class StevesStar(BaseTableStar):
-    """Loads steves tables and generates interpolators, credits to Steve
+    """Generates interpolators from Steve's tables, credits to Steve
     https://github.com/frommste"""
     def generate_interpolators(self, tablefile):
-        """Loads pregenerated tablefile, i.e. steves files."""
+        """Loads pregenerated tablefile, i.e. Steve's files."""
         data = np.loadtxt(tablefile).T
 
-        # first line contains energy shift
+        # first line contains energy shift in the 5th word
         with open(tablefile) as infile:
             line = infile.readline()
             self.energy_shift = float(line.split()[4]) * self.scaling['eps']
 
+        # load data and scale in logspace
         logpres = data[0] + np.log10(self.scaling['pres'])
         logrho  = data[1] + np.log10(self.scaling['rho'])
         logeps  = data[2] + np.log10(self.scaling['eps']) 
         ye      = data[-1]
 
+        # find bounds
         self.ye_bounds   = (np.min(ye),  np.max(ye))
         self.rho_bounds  = (np.min(logrho), np.max(logrho))
         self.pres_bounds = (np.min(logpres), np.max(logpres))
 
+        # generate interpolators
         self.eps_interp  = interp1d(logrho, logeps, fill_value ='extrapolate')
         self.rho_interp  = interp1d(logpres, logrho, fill_value ='extrapolate')
         self.pres_interp = interp1d(logrho, logpres, fill_value ='extrapolate')
+        self.ye_interp   = interp1d(logrho, ye, fill_value ='extrapolate')
