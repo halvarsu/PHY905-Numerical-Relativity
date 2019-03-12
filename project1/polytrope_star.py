@@ -14,16 +14,24 @@ class PolytropeStar(BaseStar):
         self.K = K
         self._gamma = gamma
         self._n = 1/(gamma - 1)
-        self.pres_bounds = [0, np.inf]
+        self.pres_bounds = [-np.inf, np.inf] # in log space
 
         BaseStar.__init__(self, *args, **kwargs)
         
     def rho0(self, P):
+        """Finds rho0 from P. """
         return (P/self.K) ** (1/self._gamma)
     
-    def rho(self, P, rho0 = None):
-        rho0 = rho0 or self.rho0(P)
-        return rho0 + P/(self._gamma - 1)
+    def rho(self, P = None, rho0 = None):
+        """Can find rho from either P or rho0"""
+        if rho0 is not None:
+            rho0eps = self.K*rho0**self._gamma / (self._gamma - 1)
+        elif P is not None:
+            rho0 = self.rho0(P)
+            rho0eps = P/(self._gamma -1)
+        else:
+            raise ValueError('Either P or rho0 must be specified')
+        return rho0 + rho0eps
     
     def P(self, rho):
-        return self.K*rho**self._gamma 
+        return (self.K*rho)**self._gamma 

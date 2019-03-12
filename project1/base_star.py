@@ -1,6 +1,7 @@
 import numpy as np
 import h5py
 from scipy.interpolate import InterpolatedUnivariateSpline, interp1d
+import scipy.integrate
 
 class BaseStar():
     """
@@ -30,9 +31,10 @@ class BaseStar():
         
         self.Nr = Nr
         self.initialized = True
+        # self.pres_bounds = [np.nan, np.nan]
         return self
     
-    def rho0(self, P):
+    def rho0(self, P, rho = None):
         raise NotImplementedError
         
     def rho(self, P, rho0 = None):
@@ -48,25 +50,21 @@ class BaseStar():
             if P < 10**self.pres_bounds[0] or np.isnan(P):
                 return [0,0,0,0]
 
-        rho = self.rho(P) 
-        rho0 = self.rho0(P, rho) 
+        rho0   = self.rho0(P) 
+        rho    = self.rho(P = P, rho0 = rho0) 
         
-        dmdr = 4*np.pi*r**2*rho
+        dmdr   = 4*np.pi*r**2*rho
         
-        # Assuming m == 0 for r == 0
-        # if m == 0:
-        #     dPdr = 0
-        #     dM0dr = 4*np.pi*r**2*rho0
-        # else:
-        dPdr = - rho*m/r**2*(1 + P/rho)*(1 + 4*np.pi*P*r**3/m)/(1-2*m/r)
-        dM0dr = 4*np.pi*r**2*rho0/np.sqrt(1-2*m/r)
+        dPdr   = - rho*m/r**2*(1 + P/rho)*(1 + 4*np.pi*P*r**3/m)/(1-2*m/r)
+        dM0dr  = 4*np.pi*r**2*rho0/np.sqrt(1-2*m/r)
 
         dPhidr = - 1/rho * dPdr / ( 1 + P/rho )
         return [dmdr, dPdr, dPhidr, dM0dr]
 
 
     def get_pressure_event(self):
-        """Passed to solver for termination when is pressure 0."""
+        """Returned function is passed to ivp-solver for termination when pressure is at lower
+        log10 boundary."""
         def pressure_event(t, y):
             # print(y)
             if np.isnan(y[1]):
@@ -84,7 +82,9 @@ class BaseStar():
         if not self.initialized:
             raise ValueError('Must set initial conditions first!')
 
-        Pc   = self.P(self.rhoc)
+        rho0 = self.rhoc
+        rho = self.rho(rho0 = rho0)
+        Pc   = self.P(rho0)
         rho0 = self.rho0(Pc)
 
         r0   = self.r_max * 1e-8 # small nonzero radius to start
@@ -102,8 +102,7 @@ class BaseStar():
 
     def solve_star_ode(self, integrator = 'dopri5', tol = 1e-6, Nr = 100):
         """Uses scipy.ode to solve the TOV-equations, with controlled edge
-        finding. 
-        
+        finding.  
         MIGHT BE DEPRECATED, if interpolate with extrapolation at edges
         works.
         """
@@ -148,7 +147,8 @@ class BaseStar():
                 # reset solver to previous values
                 solver.set_initial_value(y[-1], t[-1])
             elif m < 0:
-                raise ValueError('negative mass!')
+                import warnings
+                warnings.warn('negative mass!')
             else:
                 y.append(solver.y)
                 t.append(solver.t)
